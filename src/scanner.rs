@@ -239,7 +239,7 @@ impl Scanner {
             self.advance();
         }
 
-        let text = &self.source[(self.start + 1)..(self.current - 1)];
+        let text = &self.source[(self.start)..(self.current)];
         let token_type = KEYWORDS
             .get(text)
             .map_or_else(|| Identifier, std::clone::Clone::clone);

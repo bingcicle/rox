@@ -1,4 +1,4 @@
-use crate::ast::{Expr, ExprVisitor, Value};
+use crate::ast::{Expr, ExprVisitor, Stmt, StmtVisitor, Value};
 use crate::error::RoxError;
 use crate::token::Literal;
 use crate::token::Token;
@@ -6,19 +6,19 @@ use crate::token::TokenType::{
     Bang, BangEqual, EqualEqual, Greater, GreaterEqual, Less, LessEqual, Minus, Plus, Slash, Star,
 };
 
-struct Interpreter {}
+pub struct Interpreter {}
 
 impl Interpreter {
     pub fn new() -> Self {
         Self {}
     }
 
-    fn interpret(&mut self, expression: Expr) -> String {
-        let value: Value = self.evaluate(expression);
+    fn execute(&mut self, stmt: &Stmt) {}
 
-        println!("{:?}", value.clone());
-        println!("{:?}", self.stringify(value.clone()));
-        self.stringify(value)
+    pub fn interpret(&mut self, statements: &Vec<Stmt>) {
+        for statement in statements {
+            self.execute(statement);
+        }
     }
 
     fn stringify(&mut self, value: Value) -> String {
@@ -28,6 +28,17 @@ impl Interpreter {
             Value::String_(s) => s.clone(),
             Value::Nil => "nil".to_owned(),
         }
+    }
+}
+
+impl StmtVisitor<Value> for Interpreter {
+    fn visit_expr_stmt(&mut self, stmt_expr: Expr) {
+        self.evaluate(stmt_expr);
+    }
+
+    fn visit_print_stmt(&mut self, stmt_expr: Expr) {
+        let value = self.evaluate(stmt_expr);
+        println!("{:?}", value);
     }
 }
 
@@ -154,41 +165,19 @@ impl ExprVisitor<Value> for Interpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast;
+    use crate::token::Literal;
 
     #[test]
-    fn test_interpret_literal_boolean() {
-        let mut interpreter = Interpreter::new();
-        let expression = Expr::Literal(Literal::Bool(true));
-        let res = interpreter.interpret(expression);
-        assert_eq!(res, "true");
-
-        let expression = Expr::Literal(Literal::Bool(false));
-        let res = interpreter.interpret(expression);
-        assert_eq!(res, "false");
-    }
+    fn test_interpret_literal_boolean() {}
 
     #[test]
-    fn test_interpret_literal_string() {
+    fn test_interpret_print_statement() {
         let mut interpreter = Interpreter::new();
-        let expression = Expr::Literal(Literal::String_("Hello, world!".to_owned()));
-        let res = interpreter.interpret(expression);
-        assert_eq!(res, "Hello, world!");
-    }
+        let statements = vec![ast::Stmt::Print(ast::Expr::Literal(Literal::String_(
+            "one".to_string(),
+        )))];
 
-    #[test]
-    fn test_interpret_literal_number() {
-        let mut interpreter = Interpreter::new();
-        let float = 5.0;
-        let expression = Expr::Literal(Literal::Number(float));
-        let res = interpreter.interpret(expression);
-        assert_eq!(res, float.to_string());
-    }
-
-    #[test]
-    fn test_interpret_literal_nil() {
-        let mut interpreter = Interpreter::new();
-        let expression = Expr::Literal(Literal::Nil);
-        let res = interpreter.interpret(expression);
-        assert_eq!(res, "nil");
+        let res = interpreter.interpret(&statements);
     }
 }

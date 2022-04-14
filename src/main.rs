@@ -6,7 +6,7 @@ pub mod scanner;
 pub mod token;
 
 use clap::{arg, command};
-use error::RoxError;
+use interpreter::Interpreter;
 use parser::Parser;
 use scanner::Scanner;
 use std::fs::File;
@@ -16,10 +16,9 @@ fn run(contents: String) {
     let mut scanner = Scanner::new(contents);
     let tokens = scanner.scan_tokens();
     let mut parser = Parser::new(tokens);
-    let expr = match parser.parse() {
-        Ok(expr) => expr,
-        Err(e) => panic!("Problem parsing {:?}", e),
-    };
+    let statements = parser.parse();
+    let mut interpreter = Interpreter::new();
+    interpreter.interpret(&statements);
 }
 
 fn run_file(file_path: &str) {
@@ -43,5 +42,15 @@ fn main() {
         run_file(script);
     } else {
         println!("Usage: rox [script]");
+    }
+}
+
+#[cfg(test)]
+
+mod tests {
+
+    #[test]
+    fn test_main() {
+        assert!(true);
     }
 }

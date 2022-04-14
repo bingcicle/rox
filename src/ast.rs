@@ -24,11 +24,30 @@ impl From<Literal> for Value {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Expr {
     Literal(Literal),
     Unary(Token, Box<Expr>),
     Binary(Box<Expr>, Token, Box<Expr>),
     Grouping(Box<Expr>),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Stmt {
+    Print(Expr),
+    Expression(Expr),
+}
+
+pub trait StmtVisitor<Value> {
+    fn execute(&mut self, stmt: Stmt) {
+        match stmt {
+            Stmt::Expression(expr) => self.visit_expr_stmt(expr),
+            Stmt::Print(expr) => self.visit_print_stmt(expr),
+        }
+    }
+
+    fn visit_expr_stmt(&mut self, stmt_expr: Expr);
+    fn visit_print_stmt(&mut self, stmt_expr: Expr);
 }
 
 pub trait ExprVisitor<Value> {

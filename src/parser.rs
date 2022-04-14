@@ -1,13 +1,15 @@
-use crate::ast::{Expr, UnaryOperator};
+use crate::ast::{Expr, Stmt, UnaryOperator};
 use crate::error::RoxError;
 use crate::token::Literal;
 use crate::token::Token;
 use crate::token::TokenType::{
     self, Bang, BangEqual, Eof, EqualEqual, False, Greater, GreaterEqual, Identifier, LeftParen,
-    Less, LessEqual, Minus, Nil, Number, Plus, RightParen, Slash, Star, String_, True,
+    Less, LessEqual, Minus, Nil, Number, Plus, Print, RightParen, Semicolon, Slash, Star, String_,
+    True,
 };
 use std::result::Result;
 
+#[derive(Debug)]
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
@@ -18,8 +20,35 @@ impl Parser {
         Self { tokens, current: 0 }
     }
 
-    pub fn parse(&mut self) -> Result<Expr, RoxError> {
-        self.expression()
+    pub fn parse(&mut self) -> Vec<Stmt> {
+        let mut statements: Vec<Stmt> = Vec::new();
+        while !self.is_at_end() {
+            statements.push(self.statement().unwrap());
+        }
+
+        println!("statements: {:?}", statements);
+
+        statements
+    }
+
+    fn statement(&mut self) -> Result<Stmt, RoxError> {
+        println!("{:?}", self.tokens);
+        if self.match_types([Print].to_vec()) {
+            return self.print_statement();
+        }
+
+        return self.expression_statement();
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt, RoxError> {
+        let value: Expr = self.expression()?;
+        self.consume(Semicolon, "Expect ';' after value.".to_string());
+        Ok(Stmt::Print(value))
+    }
+    fn expression_statement(&mut self) -> Result<Stmt, RoxError> {
+        let mut expr: Expr = self.expression()?;
+        self.consume(Semicolon, "Expect ';' after expression.".to_string());
+        Ok(Stmt::Expression(expr))
     }
 
     fn expression(&mut self) -> Result<Expr, RoxError> {
@@ -138,7 +167,9 @@ impl Parser {
     }
 
     fn match_types(&mut self, token_types: Vec<TokenType>) -> bool {
+        println!("{:?}", token_types);
         for token_type in token_types {
+            println!("{:?} {:?}", &token_type, self.peek().token_type);
             if self.check(token_type) {
                 self.advance();
                 return true;
@@ -159,6 +190,7 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast;
 
     #[test]
     fn test_consume() {
@@ -168,5 +200,43 @@ mod tests {
         let res = parser.consume(tokens[0].clone().token_type, "message".to_string());
 
         assert!(res.is_ok())
+    }
+
+    #[test]
+    fn test_parse_expression_statement() {
+        let tokens = vec![
+            Token {
+                token_type: Print,
+                lexeme: "print".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: String_,
+                lexeme: "one".to_string(),
+                literal: Some(Literal::String_("one".to_string())),
+                line: 1,
+            },
+            Token {
+                token_type: Semicolon,
+                lexeme: ";".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: Eof,
+                lexeme: "".to_string(),
+                literal: None,
+                line: 2,
+            },
+        ];
+
+        let mut parser = Parser::new(tokens.clone());
+        let statements = parser.parse();
+
+        let expected_statement =
+            Stmt::Print(ast::Expr::Literal(Literal::String_("one".to_string())));
+
+        assert!(statements[0] == expected_statement);
     }
 }

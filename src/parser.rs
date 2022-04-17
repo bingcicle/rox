@@ -1,11 +1,11 @@
-use crate::ast::{Expr, Stmt, UnaryOperator};
+use crate::ast::{Expr, Stmt};
 use crate::error::RoxError;
 use crate::token::Literal;
 use crate::token::Token;
 use crate::token::TokenType::{
-    self, Bang, BangEqual, Eof, EqualEqual, False, Greater, GreaterEqual, Identifier, LeftParen,
-    Less, LessEqual, Minus, Nil, Number, Plus, Print, RightParen, Semicolon, Slash, Star, String_,
-    True,
+    self, Bang, BangEqual, Eof, Equal, EqualEqual, False, Greater, GreaterEqual, Identifier,
+    LeftBrace, LeftParen, Less, LessEqual, Minus, Nil, Number, Plus, Print, RightBrace, RightParen,
+    Semicolon, Slash, Star, String_, True, Var,
 };
 use std::result::Result;
 
@@ -23,36 +23,85 @@ impl Parser {
     pub fn parse(&mut self) -> Vec<Stmt> {
         let mut statements: Vec<Stmt> = Vec::new();
         while !self.is_at_end() {
-            statements.push(self.statement().unwrap());
+            statements.push(self.declaration().unwrap());
         }
-
-        println!("statements: {:?}", statements);
 
         statements
     }
 
     fn statement(&mut self) -> Result<Stmt, RoxError> {
-        println!("{:?}", self.tokens);
         if self.match_types([Print].to_vec()) {
             return self.print_statement();
+        }
+
+        if self.match_types([LeftBrace].to_vec()) {
+            return Ok(Stmt::Block(self.block()?));
         }
 
         return self.expression_statement();
     }
 
+    fn declaration(&mut self) -> Result<Stmt, RoxError> {
+        if self.match_types([Var].to_vec()) {
+            return self.var_declaration();
+        }
+
+        self.statement()
+    }
+
+    fn var_declaration(&mut self) -> Result<Stmt, RoxError> {
+        let token_name = self.consume(Identifier, "Expect variable name.".to_string())?;
+
+        let initializer = if self.match_types([Equal].to_vec()) {
+            self.expression().ok()
+        } else {
+            None
+        };
+        self.consume(Semicolon, "Expect ';' after value.".to_string())?;
+
+        Ok(Stmt::Var(token_name, initializer))
+    }
+
+    fn block(&mut self) -> Result<Vec<Stmt>, RoxError> {
+        let mut statements = Vec::new();
+
+        while !self.check(RightBrace) && !self.is_at_end() {
+            statements.push(self.declaration()?);
+        }
+
+        self.consume(RightBrace, "Expect '}' after block.".to_string())?;
+        Ok(statements)
+    }
+
     fn print_statement(&mut self) -> Result<Stmt, RoxError> {
         let value: Expr = self.expression()?;
-        self.consume(Semicolon, "Expect ';' after value.".to_string());
+        self.consume(Semicolon, "Expect ';' after value.".to_string())?;
         Ok(Stmt::Print(value))
     }
     fn expression_statement(&mut self) -> Result<Stmt, RoxError> {
-        let mut expr: Expr = self.expression()?;
-        self.consume(Semicolon, "Expect ';' after expression.".to_string());
+        let expr: Expr = self.expression()?;
+        self.consume(Semicolon, "Expect ';' after expression.".to_string())?;
         Ok(Stmt::Expression(expr))
     }
 
     fn expression(&mut self) -> Result<Expr, RoxError> {
-        self.equality()
+        self.assignment()
+    }
+    fn assignment(&mut self) -> Result<Expr, RoxError> {
+        let expr = self.equality()?;
+
+        if self.match_types([Equal].to_vec()) {
+            let equals = self.previous();
+            let value = self.assignment()?;
+
+            if let Expr::Var(name) = expr {
+                Ok(Expr::Assign(name, Box::new(value)))
+            } else {
+                Err(RoxError::InvalidAssignmentError(equals))
+            }
+        } else {
+            Ok(expr)
+        }
     }
 
     fn equality(&mut self) -> Result<Expr, RoxError> {
@@ -130,9 +179,13 @@ impl Parser {
             }));
         }
 
+        if self.match_types([Identifier].to_vec()) {
+            return Ok(Expr::Var(self.previous()));
+        }
+
         if self.match_types([LeftParen].to_vec()) {
             let expr = self.expression()?;
-            self.consume(RightParen, "Expect ')' after expression.".to_string());
+            self.consume(RightParen, "Expect ')' after expression.".to_string())?;
             return Ok(Expr::Grouping(Box::new(expr)));
         }
 

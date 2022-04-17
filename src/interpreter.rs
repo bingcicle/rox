@@ -1,37 +1,52 @@
 use crate::ast::{Expr, ExprVisitor, Stmt, StmtVisitor, Value};
-use crate::error::RoxError;
+use crate::environment::Environment;
 use crate::token::Literal;
 use crate::token::Token;
 use crate::token::TokenType::{
-    Bang, BangEqual, EqualEqual, Greater, GreaterEqual, Less, LessEqual, Minus, Plus, Slash, Star,
+    Bang, BangEqual, EqualEqual, Greater, GreaterEqual, Identifier, Less, LessEqual, Minus, Plus,
+    Slash, Star, Var,
 };
 
-pub struct Interpreter {}
+pub struct Interpreter {
+    environment: Environment,
+}
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            environment: Environment::new(None),
+        }
     }
 
     fn execute(&mut self, stmt: &Stmt) {}
+
+    fn execute_block(&mut self, statements: Vec<Stmt>, environment: Environment) {
+        let previous: Environment = environment;
+        for statement in statements {
+            self.execute(&statement);
+        }
+    }
 
     pub fn interpret(&mut self, statements: &Vec<Stmt>) {
         for statement in statements {
             self.execute(statement);
         }
     }
-
-    fn stringify(&mut self, value: Value) -> String {
-        match value {
-            Value::Bool(b) => b.to_string(),
-            Value::Number(n) => f64::to_string(&n),
-            Value::String_(s) => s.clone(),
-            Value::Nil => "nil".to_owned(),
-        }
-    }
 }
 
 impl StmtVisitor<Value> for Interpreter {
+    fn visit_var_stmt(&mut self, token: Token, stmt_expr: Option<Expr>) {
+        let value: Value;
+
+        value = if let Some(stmt_expr) = stmt_expr {
+            self.evaluate(stmt_expr)
+        } else {
+            Value::Nil
+        };
+
+        self.environment.define(token.lexeme, value);
+    }
+
     fn visit_expr_stmt(&mut self, stmt_expr: Expr) {
         self.evaluate(stmt_expr);
     }
@@ -40,9 +55,25 @@ impl StmtVisitor<Value> for Interpreter {
         let value = self.evaluate(stmt_expr);
         println!("{:?}", value);
     }
+
+    fn visit_block_stmt(&mut self, statements: Vec<Stmt>) {
+        let value = self.execute_block(statements, Environment::new(None));
+        println!("{:?}", value);
+    }
 }
 
 impl ExprVisitor<Value> for Interpreter {
+    fn visit_assignment_expr(&mut self, name: Token, expr: Box<Expr>) -> Value {
+        let value = self.evaluate(*expr);
+
+        self.environment.assign(name, value.clone());
+        value
+    }
+
+    fn visit_var_expr(&mut self, name: Token) -> Value {
+        self.environment.get(&name).unwrap()
+    }
+
     fn visit_literal_expr(&mut self, literal: Literal) -> Value {
         literal.into()
     }
@@ -166,18 +197,29 @@ impl ExprVisitor<Value> for Interpreter {
 mod tests {
     use super::*;
     use crate::ast;
+    use crate::error::RoxError;
     use crate::token::Literal;
 
     #[test]
-    fn test_interpret_literal_boolean() {}
-
-    #[test]
-    fn test_interpret_print_statement() {
+    fn test_interpret_print_statement() -> Result<(), RoxError> {
         let mut interpreter = Interpreter::new();
         let statements = vec![ast::Stmt::Print(ast::Expr::Literal(Literal::String_(
             "one".to_string(),
         )))];
 
         let res = interpreter.interpret(&statements);
+        println!("{:?}", res);
+        Ok(())
+    }
+
+    #[test]
+    fn test_interpret_var_statement() -> Result<(), RoxError> {
+        let mut interpreter = Interpreter::new();
+        let statements = vec![ast::Stmt::Var(
+            Token::new(Var, "a", None, 1),
+            Some(ast::Expr::Literal(Literal::String_("one".to_string()))),
+        )];
+        let res = interpreter.interpret(&statements);
+        Ok(())
     }
 }

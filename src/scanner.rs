@@ -224,9 +224,12 @@ impl Scanner {
             }
         }
 
-        let fractional_part = Literal::Number(
-            f64::from_str(&self.source[(self.start + 1)..(self.current - 1)]).unwrap(),
-        );
+        println!("{:?}", self.source.len());
+        println!("start: {:?}, current: {:?}", (self.start), (self.current));
+        println!("{:?}", self.source);
+
+        let fractional_part =
+            Literal::Number(f64::from_str(&self.source[(self.start)..(self.current)]).unwrap());
         self.add_token_with_literal(Number, Some(fractional_part))
     }
 
@@ -265,7 +268,7 @@ mod tests {
         scanner.scan_tokens();
 
         let expected_tokens = vec![
-            Token::new(Identifier, "print", None, 1),
+            Token::new(Print, "print", None, 1),
             Token::new(Identifier, "Hello", None, 1),
             Token::new(Comma, ",", None, 1),
             Token::new(Identifier, "world", None, 1),
@@ -273,6 +276,8 @@ mod tests {
             Token::new(Eof, "", None, 1),
         ];
         assert!(scanner.tokens.len() == 6);
+
+        println!("{:?}", scanner.tokens);
 
         for i in 0..scanner.tokens.len() {
             assert!(scanner.tokens[i] == expected_tokens[i]);

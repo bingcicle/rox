@@ -7,7 +7,9 @@ use crate::token::TokenType::Eof;
 pub enum RoxError {
     UnexpectedCharacterError(String),
     ParseError(Token, String),
-    RuntimeError(Token, String),
+    RuntimeError(String),
+    UndefinedVariableError(Token),
+    InvalidAssignmentError(Token),
     UnexpectedError,
 }
 
@@ -24,8 +26,14 @@ impl fmt::Display for RoxError {
                     return write!(f, "{} at '{}' {}", token.line, token.lexeme, message);
                 }
             }
-            RoxError::RuntimeError(token, message) => {
+            RoxError::UndefinedVariableError(token) => {
+                write!(f, "Undefined variable '{}'.", token.lexeme)
+            }
+            RoxError::RuntimeError(message) => {
                 write!(f, "{}", message)
+            }
+            RoxError::InvalidAssignmentError(token) => {
+                write!(f, "Invalid assignment target {}.", token.lexeme)
             }
             RoxError::UnexpectedError => {
                 write!(f, "Unexpected error while parsing")

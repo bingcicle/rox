@@ -3,9 +3,8 @@ use std::collections::HashMap;
 use crate::ast::Value;
 use crate::error::RoxError;
 use crate::token::Token;
-use crate::token::TokenType;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Environment {
     values: HashMap<String, Value>,
     enclosing: Option<Box<Environment>>,
@@ -44,6 +43,7 @@ impl Environment {
 mod tests {
     use super::*;
     use crate::token::Literal;
+    use crate::token::TokenType;
 
     #[test]
     fn test_environment() {

@@ -1,40 +1,70 @@
 use crate::ast::{Expr, ExprVisitor, Stmt, StmtVisitor, Value};
 use crate::environment::Environment;
+use crate::function::RoxFunction;
 use crate::token::Literal;
 use crate::token::Token;
 use crate::token::TokenType::{
-    Bang, BangEqual, EqualEqual, Greater, GreaterEqual, Identifier, Less, LessEqual, Minus, Plus,
-    Slash, Star, Var,
+    Bang, BangEqual, EqualEqual, Greater, GreaterEqual, Less, LessEqual, Minus, Or, Plus, Slash,
+    Star,
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct Interpreter {
     environment: Environment,
+    pub globals: Environment,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
+        let mut globals = Environment::new(None);
+        let clock: Value = Value::Callable(RoxFunction::Native {
+            arity: 0,
+            body: Box::new(|_args: &Vec<Value>| {
+                Value::Number(
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .expect("Could not retrieve time.")
+                        .as_millis() as f64,
+                )
+            }),
+        });
+        globals.define("clock".to_string(), clock);
         Self {
-            environment: Environment::new(None),
+            environment: globals.clone(),
+            globals,
         }
     }
 
-    fn execute(&mut self, stmt: &Stmt) {}
+    fn execute(&mut self, _stmt: &Stmt) {}
 
-    fn execute_block(&mut self, statements: Vec<Stmt>, environment: Environment) {
-        let previous: Environment = environment;
+    pub fn execute_block(&mut self, statements: Vec<Stmt>, environment: Environment) {
+        let previous: Environment = self.environment.clone();
+
+        self.environment = environment;
         for statement in statements {
             self.execute(&statement);
         }
+
+        self.environment = previous;
     }
 
     pub fn interpret(&mut self, statements: &Vec<Stmt>) {
         for statement in statements {
-            self.execute(statement);
+            self.execute(&statement);
         }
     }
 }
 
 impl StmtVisitor<Value> for Interpreter {
+    fn visit_if_stmt(&mut self, expr: Expr, then_stmt: Box<Stmt>, else_stmt: Option<Box<Stmt>>) {
+        let condition = self.evaluate(expr);
+        if self.is_truthy(condition) {
+            self.execute(&then_stmt);
+        } else if else_stmt.is_some() {
+            self.execute(&else_stmt.unwrap());
+        }
+    }
+
     fn visit_var_stmt(&mut self, token: Token, stmt_expr: Option<Expr>) {
         let value: Value;
 
@@ -47,22 +77,52 @@ impl StmtVisitor<Value> for Interpreter {
         self.environment.define(token.lexeme, value);
     }
 
+    fn visit_function_stmt(&mut self, name: Token, params: Vec<Token>, body: Vec<Stmt>) {
+        let function = RoxFunction::User {
+            name: name.clone(),
+            params: params.clone(),
+            body: body.clone(),
+        };
+        self.environment
+            .define(name.lexeme, Value::Callable(function));
+    }
+
     fn visit_expr_stmt(&mut self, stmt_expr: Expr) {
         self.evaluate(stmt_expr);
     }
 
+    fn visit_while_stmt(&mut self, expr: Expr, body: Box<Stmt>) {
+        let condition = self.evaluate(expr);
+
+        while self.is_truthy(condition.clone()) {
+            self.execute(&body);
+        }
+    }
+
     fn visit_print_stmt(&mut self, stmt_expr: Expr) {
-        let value = self.evaluate(stmt_expr);
-        println!("{:?}", value);
+        self.evaluate(stmt_expr);
     }
 
     fn visit_block_stmt(&mut self, statements: Vec<Stmt>) {
-        let value = self.execute_block(statements, Environment::new(None));
-        println!("{:?}", value);
+        self.execute_block(statements, Environment::new(None));
     }
 }
 
 impl ExprVisitor<Value> for Interpreter {
+    fn visit_logical_expr(&mut self, left: Box<Expr>, op: Token, right: Box<Expr>) -> Value {
+        let left = self.evaluate(*left);
+
+        if op.token_type == Or {
+            if self.is_truthy(left.clone()) {
+                return left;
+            } else if !self.is_truthy(left.clone()) {
+                return left;
+            }
+        }
+
+        return self.evaluate(*right);
+    }
+
     fn visit_assignment_expr(&mut self, name: Token, expr: Box<Expr>) -> Value {
         let value = self.evaluate(*expr);
 
@@ -90,7 +150,7 @@ impl ExprVisitor<Value> for Interpreter {
                 if let Value::Number(n) = right {
                     return Value::Number(-n);
                 } else {
-                    panic!("{:?} must be a number", right);
+                    panic!("{} must be a number", right);
                 }
             }
             Bang => {
@@ -110,21 +170,21 @@ impl ExprVisitor<Value> for Interpreter {
                 if let (Value::Number(l), Value::Number(r)) = (left.clone(), right.clone()) {
                     Value::Number(l - r)
                 } else {
-                    panic!("{:?} and {:?} must be numbers", left, right);
+                    panic!("{} and {} must be numbers", left, right);
                 }
             }
             Slash => {
                 if let (Value::Number(l), Value::Number(r)) = (left.clone(), right.clone()) {
                     Value::Number(l / r)
                 } else {
-                    panic!("{:?} and {:?} must be numbers", left, right);
+                    panic!("{} and {} must be numbers", left, right);
                 }
             }
             Star => {
                 if let (Value::Number(l), Value::Number(r)) = (left.clone(), right.clone()) {
                     Value::Number(l * r)
                 } else {
-                    panic!("{:?} and {:?} must be numbers", left, right);
+                    panic!("{} and {} must be numbers", left, right);
                 }
             }
             Plus => {
@@ -135,7 +195,7 @@ impl ExprVisitor<Value> for Interpreter {
                     Value::String_(l + &r)
                 } else {
                     panic!(
-                        "{:?} and {:?} must both be numbers or both be strings",
+                        "{} and {} must both be numbers or both be strings",
                         left, right
                     );
                 }
@@ -144,28 +204,28 @@ impl ExprVisitor<Value> for Interpreter {
                 if let (Value::Number(l), Value::Number(r)) = (left.clone(), right.clone()) {
                     Value::Bool(l > r)
                 } else {
-                    panic!("{:?} and {:?} must be numbers", left, right);
+                    panic!("{} and {} must be numbers", left, right);
                 }
             }
             GreaterEqual => {
                 if let (Value::Number(l), Value::Number(r)) = (left.clone(), right.clone()) {
                     Value::Bool(l >= r)
                 } else {
-                    panic!("{:?} and {:?} must be numbers", left, right);
+                    panic!("{} and {} must be numbers", left, right);
                 }
             }
             Less => {
                 if let (Value::Number(l), Value::Number(r)) = (left.clone(), right.clone()) {
                     Value::Bool(l < r)
                 } else {
-                    panic!("{:?} and {:?} must be numbers", left, right);
+                    panic!("{} and {} must be numbers", left, right);
                 }
             }
             LessEqual => {
                 if let (Value::Number(l), Value::Number(r)) = (left.clone(), right.clone()) {
                     Value::Bool(l <= r)
                 } else {
-                    panic!("{:?} and {:?} must be numbers", left, right);
+                    panic!("{} and {} must be numbers", left, right);
                 }
             }
             BangEqual => Value::Bool(!self.is_equal(left, right)),
@@ -174,8 +234,19 @@ impl ExprVisitor<Value> for Interpreter {
         }
     }
 
+    fn visit_call_expr(&mut self, callee: Box<Expr>, paren: Token, args: Vec<Expr>) -> Value {
+        let callee_value = self.evaluate(*callee);
+
+        let mut visited_args = Vec::new();
+        for arg in args {
+            visited_args.push(self.evaluate(arg))
+        }
+
+        Value::Nil
+    }
+
     fn is_truthy(&mut self, value: Value) -> bool {
-        if value == Value::Nil || value == Value::Bool(false) {
+        if value.equals(&Value::Nil) || value.equals(&Value::Bool(false)) {
             return false;
         }
 
@@ -199,6 +270,7 @@ mod tests {
     use crate::ast;
     use crate::error::RoxError;
     use crate::token::Literal;
+    use crate::token::TokenType::Var;
 
     #[test]
     fn test_interpret_print_statement() -> Result<(), RoxError> {
@@ -207,8 +279,7 @@ mod tests {
             "one".to_string(),
         )))];
 
-        let res = interpreter.interpret(&statements);
-        println!("{:?}", res);
+        interpreter.interpret(&statements);
         Ok(())
     }
 
@@ -219,7 +290,7 @@ mod tests {
             Token::new(Var, "a", None, 1),
             Some(ast::Expr::Literal(Literal::String_("one".to_string()))),
         )];
-        let res = interpreter.interpret(&statements);
+        interpreter.interpret(&statements);
         Ok(())
     }
 }

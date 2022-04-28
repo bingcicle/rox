@@ -1,15 +1,18 @@
+use crate::function::RoxFunction;
 use crate::token::{Literal, Token};
+use std::fmt;
 
 pub enum UnaryOperator {
     Bang,
     Minus,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(Clone)]
 pub enum Value {
     String_(String),
     Bool(bool),
     Number(f64),
+    Callable(RoxFunction),
     Nil,
 }
 
@@ -24,7 +27,27 @@ impl From<Literal> for Value {
     }
 }
 
-#[derive(Debug, PartialEq)]
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+impl Value {
+    pub fn equals(&self, other: &Value) -> bool {
+        match (self, other) {
+            (Value::Nil, Value::Nil) => true,
+            (_, Value::Nil) => false,
+            (Value::Nil, _) => false,
+            (Value::Bool(left), Value::Bool(right)) => left == right,
+            (Value::Number(left), Value::Number(right)) => left == right,
+            (Value::String_(left), Value::String_(right)) => left.eq(right),
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
     Literal(Literal),
     Unary(Token, Box<Expr>),
@@ -32,14 +55,19 @@ pub enum Expr {
     Grouping(Box<Expr>),
     Var(Token),
     Assign(Token, Box<Expr>),
+    Logical(Box<Expr>, Token, Box<Expr>),
+    Call(Box<Expr>, Token, Vec<Expr>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Stmt {
     Print(Expr),
     Expression(Expr),
     Block(Vec<Stmt>),
     Var(Token, Option<Expr>),
+    If(Expr, Box<Stmt>, Option<Box<Stmt>>),
+    While(Expr, Box<Stmt>),
+    Function(Token, Vec<Token>, Vec<Stmt>),
 }
 
 pub trait StmtVisitor<Value> {
@@ -49,6 +77,9 @@ pub trait StmtVisitor<Value> {
             Stmt::Print(expr) => self.visit_print_stmt(expr),
             Stmt::Var(token, expr) => self.visit_var_stmt(token, expr),
             Stmt::Block(stmts) => self.visit_block_stmt(stmts),
+            Stmt::If(expr, then_stmt, else_stmt) => self.visit_if_stmt(expr, then_stmt, else_stmt),
+            Stmt::While(expr, body_stmt) => self.visit_while_stmt(expr, body_stmt),
+            Stmt::Function(name, params, body) => self.visit_function_stmt(name, params, body),
         }
     }
 
@@ -56,6 +87,9 @@ pub trait StmtVisitor<Value> {
     fn visit_print_stmt(&mut self, stmt_expr: Expr);
     fn visit_var_stmt(&mut self, token: Token, stmt_expr: Option<Expr>);
     fn visit_block_stmt(&mut self, statements: Vec<Stmt>);
+    fn visit_if_stmt(&mut self, expr: Expr, then_stmt: Box<Stmt>, else_stmt: Option<Box<Stmt>>);
+    fn visit_while_stmt(&mut self, expr: Expr, body_stmt: Box<Stmt>);
+    fn visit_function_stmt(&mut self, name: Token, params: Vec<Token>, body: Vec<Stmt>);
 }
 
 pub trait ExprVisitor<Value> {
@@ -67,6 +101,8 @@ pub trait ExprVisitor<Value> {
             Expr::Grouping(g) => self.visit_grouping_expr(g),
             Expr::Var(t) => self.visit_var_expr(t),
             Expr::Assign(t, expr) => self.visit_assignment_expr(t, expr),
+            Expr::Logical(l, op, r) => self.visit_logical_expr(l, op, r),
+            Expr::Call(c, p, a) => self.visit_call_expr(c, p, a),
         }
     }
 
@@ -76,6 +112,8 @@ pub trait ExprVisitor<Value> {
     fn visit_binary_expr(&mut self, left: Box<Expr>, operator: Token, right: Box<Expr>) -> Value;
     fn visit_var_expr(&mut self, name: Token) -> Value;
     fn visit_assignment_expr(&mut self, name: Token, expr: Box<Expr>) -> Value;
+    fn visit_logical_expr(&mut self, left: Box<Expr>, operator: Token, right: Box<Expr>) -> Value;
+    fn visit_call_expr(&mut self, callee: Box<Expr>, paren: Token, args: Vec<Expr>) -> Value;
     fn is_truthy(&mut self, value: Value) -> bool;
     fn is_equal(&mut self, a: Value, b: Value) -> bool;
 }

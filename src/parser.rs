@@ -3,9 +3,9 @@ use crate::error::RoxError;
 use crate::token::Literal;
 use crate::token::Token;
 use crate::token::TokenType::{
-    self, Bang, BangEqual, Eof, Equal, EqualEqual, False, Greater, GreaterEqual, Identifier,
-    LeftBrace, LeftParen, Less, LessEqual, Minus, Nil, Number, Plus, Print, RightBrace, RightParen,
-    Semicolon, Slash, Star, String_, True, Var,
+    self, And, Bang, BangEqual, Comma, Else, Eof, Equal, EqualEqual, False, For, Fun, Greater,
+    GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil, Number, Or,
+    Plus, Print, RightBrace, RightParen, Semicolon, Slash, Star, String_, True, Var, While,
 };
 use std::result::Result;
 
@@ -30,8 +30,20 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Stmt, RoxError> {
+        if self.match_types([For].to_vec()) {
+            return self.for_statement();
+        }
+
+        if self.match_types([If].to_vec()) {
+            return self.if_statement();
+        }
+
         if self.match_types([Print].to_vec()) {
             return self.print_statement();
+        }
+
+        if self.match_types([While].to_vec()) {
+            return self.while_statement();
         }
 
         if self.match_types([LeftBrace].to_vec()) {
@@ -41,7 +53,48 @@ impl Parser {
         return self.expression_statement();
     }
 
+    fn function(&mut self, kind: String) -> Result<Stmt, RoxError> {
+        let name = self.consume(
+            Identifier,
+            "Expect".to_owned() + &kind + &"name.".to_string(),
+        )?;
+
+        self.consume(
+            LeftParen,
+            "Expect ( after".to_owned() + &kind + &"name.".to_string(),
+        );
+
+        let mut parameters = Vec::new();
+
+        if !self.check(RightParen) {
+            parameters.push(self.consume(Identifier, "Expect parameter name.".to_string())?);
+            loop {
+                if parameters.len() >= 255 {
+                    return Err(RoxError::MaxParameterLimitError);
+                } else if !self.match_types([Comma].to_vec()) {
+                    break;
+                } else {
+                    parameters
+                        .push(self.consume(Identifier, "Expect parameter name.".to_string())?);
+                }
+            }
+        }
+
+        self.consume(RightParen, "Expect ')' after parameters".to_string());
+        self.consume(
+            LeftBrace,
+            "Expect '{' before".to_owned() + &kind + &"name.".to_string(),
+        );
+
+        let body = self.block()?;
+        Ok(Stmt::Function(name, parameters, body))
+    }
+
     fn declaration(&mut self) -> Result<Stmt, RoxError> {
+        if self.match_types([Fun].to_vec()) {
+            return self.function("function".to_string());
+        }
+
         if self.match_types([Var].to_vec()) {
             return self.var_declaration();
         }
@@ -73,11 +126,84 @@ impl Parser {
         Ok(statements)
     }
 
+    fn for_statement(&mut self) -> Result<Stmt, RoxError> {
+        self.consume(LeftParen, "Expect '(' after 'for'.".to_string())?;
+
+        let initializer = if self.match_types([Semicolon].to_vec()) {
+            None
+        } else if self.match_types([Var].to_vec()) {
+            self.var_declaration().ok()
+        } else {
+            self.expression_statement().ok()
+        };
+
+        let condition = if !self.check(Semicolon) {
+            self.expression().ok()
+        } else {
+            None
+        };
+
+        self.consume(Semicolon, "Expect ';' after loop condition.".to_string())?;
+
+        let increment = if !self.check(RightParen) {
+            self.expression().ok()
+        } else {
+            None
+        };
+
+        self.consume(RightParen, "Expect ')' after for clauses.".to_string())?;
+        let mut body = self.statement()?;
+        if increment != None {
+            body = Stmt::Block(vec![body, Stmt::Expression(increment.unwrap())]);
+        }
+
+        let condition = if condition == None {
+            Some(Expr::Literal(Literal::Bool(true)))
+        } else {
+            condition
+        };
+
+        body = Stmt::While(condition.unwrap(), Box::new(body));
+
+        if Some(initializer.as_ref().unwrap()) != None {
+            body = Stmt::Block(vec![initializer.unwrap(), body]);
+        }
+
+        Ok(body)
+    }
+
+    fn if_statement(&mut self) -> Result<Stmt, RoxError> {
+        self.consume(LeftParen, "Expect '(' after if.".to_string())?;
+        let condition: Expr = self.expression()?;
+        self.consume(RightParen, "Expect ')' after if condition.".to_string())?;
+
+        let then_branch = Box::new(self.statement()?);
+
+        let else_branch = if self.match_types([Else].to_vec()) {
+            Some(Box::new(self.statement()?))
+        } else {
+            None
+        };
+
+        Ok(Stmt::If(condition, then_branch, else_branch))
+    }
+
+    fn while_statement(&mut self) -> Result<Stmt, RoxError> {
+        self.consume(LeftParen, "Expect '(' after 'while'.".to_string())?;
+        let condition = self.expression()?;
+        self.consume(RightParen, "Expect ')' after condition.".to_string())?;
+
+        let body = self.statement()?;
+
+        Ok(Stmt::While(condition, Box::new(body)))
+    }
+
     fn print_statement(&mut self) -> Result<Stmt, RoxError> {
         let value: Expr = self.expression()?;
         self.consume(Semicolon, "Expect ';' after value.".to_string())?;
         Ok(Stmt::Print(value))
     }
+
     fn expression_statement(&mut self) -> Result<Stmt, RoxError> {
         let expr: Expr = self.expression()?;
         self.consume(Semicolon, "Expect ';' after expression.".to_string())?;
@@ -87,8 +213,9 @@ impl Parser {
     fn expression(&mut self) -> Result<Expr, RoxError> {
         self.assignment()
     }
+
     fn assignment(&mut self) -> Result<Expr, RoxError> {
-        let expr = self.equality()?;
+        let expr = self.or()?;
 
         if self.match_types([Equal].to_vec()) {
             let equals = self.previous();
@@ -102,6 +229,29 @@ impl Parser {
         } else {
             Ok(expr)
         }
+    }
+
+    fn or(&mut self) -> Result<Expr, RoxError> {
+        let mut expr = self.and()?;
+
+        while self.match_types([Or].to_vec()) {
+            let operator = self.previous();
+            let right = self.and()?;
+            expr = Expr::Logical(Box::new(expr), operator, Box::new(right));
+        }
+        Ok(expr)
+    }
+
+    fn and(&mut self) -> Result<Expr, RoxError> {
+        let mut expr = self.equality()?;
+
+        while self.match_types([And].to_vec()) {
+            let operator = self.previous();
+            let right = self.equality()?;
+            expr = Expr::Logical(Box::new(expr), operator, Box::new(right));
+        }
+
+        Ok(expr)
     }
 
     fn equality(&mut self) -> Result<Expr, RoxError> {
@@ -155,9 +305,36 @@ impl Parser {
             let operator: Token = self.previous();
             let right = self.unary()?;
             return Ok(Expr::Unary(operator, Box::new(right)));
+        } else {
+            self.call()
+        }
+    }
+
+    fn call(&mut self) -> Result<Expr, RoxError> {
+        let mut expr = self.primary();
+
+        loop {
+            if self.match_types([LeftParen].to_vec()) {
+                expr = self.finish_call(expr.unwrap());
+            } else {
+                break;
+            }
         }
 
-        self.primary()
+        expr
+    }
+
+    fn finish_call(&mut self, callee: Expr) -> Result<Expr, RoxError> {
+        let mut args = Vec::new();
+        if !self.check(RightParen) {
+            args.push(self.expression()?);
+            while self.match_types([Comma].to_vec()) {
+                args.push(self.expression()?);
+            }
+        }
+        let paren = self.consume(RightParen, "Expect ')' after arguments.".to_string())?;
+
+        Ok(Expr::Call(Box::new(callee), paren, args))
     }
 
     fn primary(&mut self) -> Result<Expr, RoxError> {
@@ -220,9 +397,7 @@ impl Parser {
     }
 
     fn match_types(&mut self, token_types: Vec<TokenType>) -> bool {
-        println!("{:?}", token_types);
         for token_type in token_types {
-            println!("{:?} {:?}", &token_type, self.peek().token_type);
             if self.check(token_type) {
                 self.advance();
                 return true;
@@ -291,5 +466,100 @@ mod tests {
             Stmt::Print(ast::Expr::Literal(Literal::String_("one".to_string())));
 
         assert!(statements[0] == expected_statement);
+    }
+
+    #[test]
+    fn test_parse_if_statement() -> Result<(), RoxError> {
+        // if (true) a = 1; else a = 2;
+        let tokens = vec![
+            Token {
+                token_type: If,
+                lexeme: "if".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: LeftParen,
+                lexeme: "(".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: True,
+                lexeme: "true".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: RightParen,
+                lexeme: ")".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: Identifier,
+                lexeme: "a".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: Equal,
+                lexeme: "=".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: Number,
+                lexeme: "1".to_string(),
+                literal: Some(Literal::Number(1.0)),
+                line: 1,
+            },
+            Token {
+                token_type: Semicolon,
+                lexeme: ";".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: Else,
+                lexeme: "else".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: Identifier,
+                lexeme: "a".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: Equal,
+                lexeme: "=".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: Number,
+                lexeme: "2".to_string(),
+                literal: Some(Literal::Number(2.0)),
+                line: 1,
+            },
+            Token {
+                token_type: Semicolon,
+                lexeme: ";".to_string(),
+                literal: None,
+                line: 1,
+            },
+            Token {
+                token_type: Eof,
+                lexeme: "".to_string(),
+                literal: None,
+                line: 3,
+            },
+        ];
+
+        let mut parser = Parser::new(tokens.clone());
+        parser.parse();
+        Ok(())
     }
 }

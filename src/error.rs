@@ -11,6 +11,7 @@ pub enum RoxError {
     UndefinedVariableError(Token),
     InvalidAssignmentError(Token),
     UnexpectedError,
+    MaxParameterLimitError,
 }
 
 impl fmt::Display for RoxError {
@@ -34,6 +35,9 @@ impl fmt::Display for RoxError {
             }
             RoxError::InvalidAssignmentError(token) => {
                 write!(f, "Invalid assignment target {}.", token.lexeme)
+            }
+            RoxError::MaxParameterLimitError => {
+                write!(f, "Can't have more than 255 parameters.")
             }
             RoxError::UnexpectedError => {
                 write!(f, "Unexpected error while parsing")

@@ -224,10 +224,6 @@ impl Scanner {
             }
         }
 
-        println!("{:?}", self.source.len());
-        println!("start: {:?}, current: {:?}", (self.start), (self.current));
-        println!("{:?}", self.source);
-
         let fractional_part =
             Literal::Number(f64::from_str(&self.source[(self.start)..(self.current)]).unwrap());
         self.add_token_with_literal(Number, Some(fractional_part))
@@ -276,8 +272,6 @@ mod tests {
             Token::new(Eof, "", None, 1),
         ];
         assert!(scanner.tokens.len() == 6);
-
-        println!("{:?}", scanner.tokens);
 
         for i in 0..scanner.tokens.len() {
             assert!(scanner.tokens[i] == expected_tokens[i]);

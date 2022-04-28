@@ -1,6 +1,8 @@
 pub mod ast;
+pub mod callable;
 pub mod environment;
 pub mod error;
+pub mod function;
 pub mod interpreter;
 pub mod parser;
 pub mod scanner;
@@ -20,6 +22,8 @@ fn run(contents: String) {
     let statements = parser.parse();
     let mut interpreter = Interpreter::new();
     interpreter.interpret(&statements);
+
+    println!("Tokens: {:?}", parser);
 }
 
 fn run_file(file_path: &str) {
